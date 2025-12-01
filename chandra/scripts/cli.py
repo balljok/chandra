@@ -227,6 +227,7 @@ def main(
 
         # Output directory in the same location as the input file
         file_output_dir = file_path.parent / f"{file_path.stem}_chandra"
+        lockfile_path = file_path.with_suffix(file_path.suffix + ".lock")
 
         # Check if output directory already exists
         if file_output_dir.exists():
@@ -235,13 +236,14 @@ def main(
             )
             continue        
 
-        # create a lockfile to prevent other processes from processing the same file
-        lockfile_path = file_path.with_suffix(file_path.suffix + ".lock")
-        if lockfile_path.exists():
+        # Create a lockfile atomically to prevent race conditions
+        try:
+            # Open with 'x' mode - fails if file already exists (atomic operation)
+            lockfile_fd = open(lockfile_path, 'x')
+            lockfile_fd.close()
+        except FileExistsError:
             click.echo(f"  Skipping {file_path.name} as it is being processed by another instance.")
             continue
-        else:
-            lockfile_path.touch()
 
         try:
             # Load images from file
