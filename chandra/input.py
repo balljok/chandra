@@ -40,6 +40,7 @@ def load_pdf_images(
             min_page_dim = min(page_obj.get_width(), page_obj.get_height())
             scale_dpi = (min_pdf_image_dim / min_page_dim) * 72
             scale_dpi = max(scale_dpi, image_dpi)
+            scale_dpi = min(scale_dpi, 150) # Added upper limit to avoid excessive memory usage
             page_obj = doc[page]
             flatten(page_obj)
             page_obj = doc[page]

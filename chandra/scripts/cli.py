@@ -13,13 +13,13 @@ def get_supported_files(input_path: Path) -> List[Path]:
     """Get list of supported image/PDF files from path."""
     supported_extensions = {
         ".pdf",
-        ".png",
-        ".jpg",
-        ".jpeg",
-        ".gif",
-        ".webp",
-        ".tiff",
-        ".bmp",
+        # ".png",
+        # ".jpg",
+        # ".jpeg",
+        # ".gif",
+        # ".webp",
+        # ".tiff",
+        # ".bmp",
     }
 
     if input_path.is_file():
@@ -31,8 +31,8 @@ def get_supported_files(input_path: Path) -> List[Path]:
     elif input_path.is_dir():
         files = []
         for ext in supported_extensions:
-            files.extend(input_path.glob(f"*{ext}"))
-            files.extend(input_path.glob(f"*{ext.upper()}"))
+            files.extend(input_path.rglob(f"*{ext}"))
+            files.extend(input_path.rglob(f"*{ext.upper()}"))
         return sorted(files)
 
     else:
@@ -48,10 +48,10 @@ def save_merged_output(
     paginate_output: bool = False,
 ):
     """Save merged OCR results for all pages to output directory."""
-    # Create subfolder for this file
-    safe_name = Path(file_name).stem
-    file_output_dir = output_dir / safe_name
+    # Output directory is already set to the file-specific folder
+    file_output_dir = output_dir
     file_output_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = Path(file_name).stem
 
     # Merge all pages
     all_markdown = []
@@ -123,7 +123,6 @@ def save_merged_output(
 
 @click.command()
 @click.argument("input_path", type=click.Path(exists=True, path_type=Path))
-@click.argument("output_path", type=click.Path(path_type=Path))
 @click.option(
     "--method",
     type=click.Choice(["hf", "vllm"], case_sensitive=False),
@@ -182,7 +181,6 @@ def save_merged_output(
 )
 def main(
     input_path: Path,
-    output_path: Path,
     method: str,
     page_range: str,
     max_output_tokens: int,
@@ -206,11 +204,7 @@ def main(
 
     click.echo("Chandra CLI - Starting OCR processing")
     click.echo(f"Input: {input_path}")
-    click.echo(f"Output: {output_path}")
     click.echo(f"Method: {method}")
-
-    # Create output directory
-    output_path.mkdir(parents=True, exist_ok=True)
 
     # Load model
     click.echo(f"\nLoading model with method '{method}'...")
@@ -230,6 +224,24 @@ def main(
         click.echo(
             f"\n[{file_idx}/{len(files_to_process)}] Processing: {file_path.name}"
         )
+
+        # Output directory in the same location as the input file
+        file_output_dir = file_path.parent / f"{file_path.stem}_chandra"
+
+        # Check if output directory already exists
+        if file_output_dir.exists():
+            click.echo(
+                f"  Skipping {file_path.name} as output directory already exists."
+            )
+            continue        
+
+        # create a lockfile to prevent other processes from processing the same file
+        lockfile_path = file_path.with_suffix(file_path.suffix + ".lock")
+        if lockfile_path.exists():
+            click.echo(f"  Skipping {file_path.name} as it is being processed by another instance.")
+            continue
+        else:
+            lockfile_path.touch()
 
         try:
             # Load images from file
@@ -274,7 +286,7 @@ def main(
 
             # Save merged output for all pages
             save_merged_output(
-                output_path,
+                file_output_dir,
                 file_path.name,
                 all_results,
                 save_images=include_images,
@@ -287,8 +299,12 @@ def main(
         except Exception as e:
             click.echo(f"  Error processing {file_path.name}: {e}", err=True)
             continue
+        
+        # Delete the lockfile
+        if lockfile_path.exists():
+            lockfile_path.unlink()
 
-    click.echo(f"\nProcessing complete. Results saved to: {output_path}")
+    click.echo(f"\nProcessing complete.")
 
 
 if __name__ == "__main__":
