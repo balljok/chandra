@@ -1,4 +1,5 @@
 import json
+import time
 from pathlib import Path
 from typing import List
 
@@ -219,6 +220,10 @@ def main(
         click.echo("No supported files found. Exiting.")
         return
 
+    # Initialize global timing statistics
+    total_pages_processed = 0
+    total_processing_time = 0.0
+
     # Process each file
     for file_idx, file_path in enumerate(files_to_process, 1):
         click.echo(
@@ -246,6 +251,9 @@ def main(
             continue
 
         try:
+            # Start timing for this file
+            file_start_time = time.time()
+            
             # Load images from file
             config = {"page_range": page_range} if page_range else {}
             images = load_file(str(file_path), config)
@@ -296,7 +304,16 @@ def main(
                 paginate_output=paginate_output,
             )
 
-            click.echo(f"  Completed: {file_path.name}")
+            # Calculate timing statistics
+            file_end_time = time.time()
+            file_processing_time = file_end_time - file_start_time
+            total_pages_processed += len(images)
+            total_processing_time += file_processing_time
+            
+            avg_time_per_page = total_processing_time / total_pages_processed if total_pages_processed > 0 else 0
+            
+            click.echo(f"  Completed: {file_path.name} ({file_processing_time:.2f}s, {file_processing_time/len(images):.2f}s/page)")
+            click.echo(f"  Global average: {avg_time_per_page:.2f}s/page ({total_pages_processed} pages in {total_processing_time:.2f}s)")
 
         except Exception as e:
             click.echo(f"  Error processing {file_path.name}: {e}", err=True)
@@ -306,7 +323,14 @@ def main(
         if lockfile_path.exists():
             lockfile_path.unlink()
 
-    click.echo(f"\nProcessing complete.")
+    # Display final statistics
+    if total_pages_processed > 0:
+        avg_time_per_page = total_processing_time / total_pages_processed
+        click.echo(f"\nProcessing complete.")
+        click.echo(f"Total: {total_pages_processed} pages in {total_processing_time:.2f}s")
+        click.echo(f"Average: {avg_time_per_page:.2f}s/page")
+    else:
+        click.echo(f"\nProcessing complete.")
 
 
 if __name__ == "__main__":
