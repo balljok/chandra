@@ -226,9 +226,6 @@ def main(
 
     # Process each file
     for file_idx, file_path in enumerate(files_to_process, 1):
-        click.echo(
-            f"\n[{file_idx}/{len(files_to_process)}] Processing: {file_path.name}"
-        )
 
         # Output directory in the same location as the input file
         file_output_dir = file_path.parent / f"{file_path.stem}_chandra"
@@ -236,10 +233,14 @@ def main(
 
         # Check if output directory already exists
         if file_output_dir.exists():
-            click.echo(
-                f"  Skipping {file_path.name} as output directory already exists."
-            )
+            # click.echo(
+            #     f"  Skipping {file_path.name} as output directory already exists."
+            # )
             continue        
+
+        click.echo(
+            f"\n[{file_idx}/{len(files_to_process)}] Processing: {file_path.name}"
+        )
 
         # Create a lockfile atomically to prevent race conditions
         try:
