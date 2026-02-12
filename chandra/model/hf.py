@@ -1,7 +1,8 @@
+import time
 from typing import List
 
 from chandra.model.schema import BatchInputItem, GenerationResult
-from chandra.model.util import scale_to_fit
+from chandra.model.util import scale_to_fit, detect_repeat_token
 from chandra.prompts import PROMPT_MAPPING
 from chandra.settings import settings
 
@@ -10,6 +11,8 @@ def generate_hf(
     batch: List[BatchInputItem],
     model,
     max_output_tokens=None,
+    max_retries: int = None,
+    max_failure_retries: int = None,
     bbox_scale: int = settings.BBOX_SCALE,
     **kwargs,
 ) -> List[GenerationResult]:
@@ -18,38 +21,95 @@ def generate_hf(
     if max_output_tokens is None:
         max_output_tokens = settings.MAX_OUTPUT_TOKENS
 
-    messages = [
-        process_batch_element(item, model.processor, bbox_scale) for item in batch
-    ]
-    text = model.processor.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True
-    )
+    if max_retries is None:
+        max_retries = settings.MAX_VLLM_RETRIES
 
-    image_inputs, _ = process_vision_info(messages)
-    inputs = model.processor(
-        text=text,
-        images=image_inputs,
-        padding=True,
-        return_tensors="pt",
-        padding_side="left",
-    )
-    inputs = inputs.to("cuda")
+    def _generate(item: BatchInputItem, temperature: float = 0.6, top_p: float = 0.9) -> GenerationResult:
+        message = process_batch_element(item, model.processor, bbox_scale)
+        text = model.processor.apply_chat_template(
+            [message], tokenize=False, add_generation_prompt=True
+        )
 
-    # Inference: Generation of the output
-    generated_ids = model.generate(**inputs, max_new_tokens=max_output_tokens)
-    generated_ids_trimmed = [
-        out_ids[len(in_ids) :]
-        for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
-    ]
-    output_text = model.processor.batch_decode(
-        generated_ids_trimmed,
-        skip_special_tokens=True,
-        clean_up_tokenization_spaces=False,
-    )
-    results = [
-        GenerationResult(raw=out, token_count=len(ids), error=False)
-        for out, ids in zip(output_text, generated_ids_trimmed)
-    ]
+        image_inputs, _ = process_vision_info([message])
+        inputs = model.processor(
+            text=[text],
+            images=image_inputs,
+            padding=True,
+            return_tensors="pt",
+            padding_side="left",
+        )
+        inputs = inputs.to("cuda")
+
+        try:
+            # Inference: Generation of the output
+            generated_ids = model.generate(
+                **inputs,
+                max_new_tokens=max_output_tokens,
+                temperature=temperature,
+                do_sample=(temperature > 0),
+                top_p=top_p,
+            )
+            generated_ids_trimmed = [
+                out_ids[len(in_ids) :]
+                for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+            ]
+            output_text = model.processor.batch_decode(
+                generated_ids_trimmed,
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=False,
+            )
+            result = GenerationResult(
+                raw=output_text[0], token_count=len(generated_ids_trimmed[0]), error=False
+            )
+        except Exception as e:
+            print(f"Error during HF generation: {e}")
+            return GenerationResult(raw="", token_count=0, error=True)
+
+        return result
+
+    def _should_retry(result, retries, max_retries, max_failure_retries):
+        has_repeat = detect_repeat_token(result.raw) or (
+            len(result.raw) > 50 and detect_repeat_token(result.raw, cut_from_end=50)
+        )
+
+        if retries < max_retries and has_repeat:
+            print(
+                f"Detected repeat token, retrying generation (attempt {retries + 1})..."
+            )
+            return True
+
+        if retries < max_retries and result.error:
+            print(
+                f"Detected hf error, retrying generation (attempt {retries + 1})..."
+            )
+            time.sleep(2 * (retries + 1))  # Sleeping can help under load
+            return True
+
+        if (
+            result.error
+            and max_failure_retries is not None
+            and retries < max_failure_retries
+        ):
+            print(
+                f"Detected hf error, retrying generation (attempt {retries + 1})..."
+            )
+            time.sleep(2 * (retries + 1))  # Sleeping can help under load
+            return True
+
+        return False
+
+    def process_item(item):
+        result = _generate(item)
+        retries = 0
+
+        while _should_retry(result, retries, max_retries, max_failure_retries):
+            result = _generate(item, temperature=0.7, top_p=0.95)
+            retries += 1
+
+        return result
+
+    # Process each item individually with retry logic
+    results = [process_item(item) for item in batch]
     return results
 
 
