@@ -37,15 +37,29 @@ def load_pdf_images(
     for page in range(len(doc)):
         if not page_range or page in page_range:
             page_obj = doc[page]
-            min_page_dim = min(page_obj.get_width(), page_obj.get_height())
-            scale_dpi = (min_pdf_image_dim / min_page_dim) * 72
-            scale_dpi = max(scale_dpi, image_dpi)
-            # scale_dpi = min(scale_dpi, 150) # Added upper limit to avoid excessive memory usage
-            page_obj = doc[page]
-            flatten(page_obj)
-            page_obj = doc[page]
-            pil_image = page_obj.render(scale=scale_dpi / 72).to_pil().convert("RGB")
-            images.append(pil_image)
+
+            # Check if page contains any text
+            textpage = page_obj.get_textpage()
+            page_text = textpage.get_text_range()
+            has_text = bool(page_text.strip())
+
+            if has_text:
+                # Page has text, render normally
+                min_page_dim = min(page_obj.get_width(), page_obj.get_height())
+                scale_dpi = (min_pdf_image_dim / min_page_dim) * 72
+                scale_dpi = max(scale_dpi, image_dpi)
+                # scale_dpi = min(scale_dpi, 150) # Added upper limit to avoid excessive memory usage
+                page_obj = doc[page]
+                flatten(page_obj)
+                page_obj = doc[page]
+                pil_image = (
+                    page_obj.render(scale=scale_dpi / 72).to_pil().convert("RGB")
+                )
+                images.append(pil_image)
+            else:
+                # Page has no text, add small white image
+                white_image = Image.new("RGB", (100, 100), color="white")
+                images.append(white_image)
 
     doc.close()
     return images
