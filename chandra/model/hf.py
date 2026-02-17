@@ -1,7 +1,7 @@
 from typing import List
 
 from chandra.model.schema import BatchInputItem, GenerationResult
-from chandra.model.util import scale_to_fit
+from chandra.model.util import scale_to_fit, detect_repeat_token
 from chandra.prompts import PROMPT_MAPPING
 from chandra.settings import settings
 
@@ -10,6 +10,7 @@ def generate_hf(
     batch: List[BatchInputItem],
     model,
     max_output_tokens=None,
+    max_retries: int | None = None,
     bbox_scale: int = settings.BBOX_SCALE,
     **kwargs,
 ) -> List[GenerationResult]:
@@ -17,6 +18,9 @@ def generate_hf(
 
     if max_output_tokens is None:
         max_output_tokens = settings.MAX_OUTPUT_TOKENS
+
+    if max_retries is None:
+        max_retries = settings.MAX_VLLM_RETRIES
 
     messages = [
         process_batch_element(item, model.processor, bbox_scale) for item in batch
@@ -50,6 +54,61 @@ def generate_hf(
         GenerationResult(raw=out, token_count=len(ids), error=False)
         for out, ids in zip(output_text, generated_ids_trimmed)
     ]
+
+    for idx, result in enumerate(results):
+        retries = 0
+        has_repeat = detect_repeat_token(result.raw) or (
+            len(result.raw) > 50 and detect_repeat_token(result.raw, cut_from_end=50)
+        )
+
+        while retries < max_retries and has_repeat:
+            print(
+                f"Detected repeat token, retrying generation (attempt {retries + 1})..."
+            )
+
+            retry_message = process_batch_element(
+                batch[idx], model.processor, bbox_scale
+            )
+            retry_text = model.processor.apply_chat_template(
+                [retry_message], tokenize=False, add_generation_prompt=True
+            )
+            retry_image_inputs, _ = process_vision_info([retry_message])
+            retry_inputs = model.processor(
+                text=retry_text,
+                images=retry_image_inputs,
+                padding=True,
+                return_tensors="pt",
+                padding_side="left",
+            )
+            retry_inputs = retry_inputs.to("cuda")
+
+            retry_generated_ids = model.generate(
+                **retry_inputs,
+                max_new_tokens=max_output_tokens,
+                temperature=0.3,
+                top_p=0.95,
+                do_sample=True,
+            )
+            retry_trimmed = [
+                out_ids[len(in_ids) :]
+                for in_ids, out_ids in zip(retry_inputs.input_ids, retry_generated_ids)
+            ]
+            retry_text_out = model.processor.batch_decode(
+                retry_trimmed,
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=False,
+            )[0]
+
+            results[idx] = GenerationResult(
+                raw=retry_text_out, token_count=len(retry_trimmed[0]), error=False
+            )
+
+            retries += 1
+            has_repeat = detect_repeat_token(results[idx].raw) or (
+                len(results[idx].raw) > 50
+                and detect_repeat_token(results[idx].raw, cut_from_end=50)
+            )
+
     return results
 
 
