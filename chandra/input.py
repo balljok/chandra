@@ -44,7 +44,17 @@ def load_pdf_images(
             page_obj = doc[page]
             flatten(page_obj)
             page_obj = doc[page]
-            pil_image = page_obj.render(scale=scale_dpi / 72).to_pil().convert("RGB")
+
+            # Check if page has text
+            page_text = page_obj.get_text()
+            if not page_text or not page_text.strip():
+                # Page has no text, create a small white image
+                pil_image = Image.new("RGB", (100, 100), color="white")
+            else:
+                pil_image = (
+                    page_obj.render(scale=scale_dpi / 72).to_pil().convert("RGB")
+                )
+
             images.append(pil_image)
 
     doc.close()
