@@ -1,4 +1,5 @@
 import math
+import re
 from typing import Tuple
 
 from PIL import Image
@@ -42,6 +43,41 @@ def scale_to_fit(
     return img.resize((new_width, new_height), resample=resample_method)
 
 
+def is_markup_sequence(text: str, markup_threshold: float = 0.4) -> bool:
+    """
+    Check if a text sequence is primarily markup (HTML/XML tags).
+
+    Args:
+        text: The text sequence to check
+        markup_threshold: Minimum ratio of markup characters to consider it markup (default: 0.4)
+
+    Returns:
+        True if the sequence appears to be primarily markup
+    """
+    if not text:
+        return False
+
+    # Count angle brackets and common tag patterns
+    markup_chars = text.count("<") + text.count(">")
+
+    # Check for common HTML/XML tag patterns
+    tag_pattern = r"</?[a-zA-Z][a-zA-Z0-9]*[^>]*>"
+    tags = re.findall(tag_pattern, text)
+
+    if tags:
+        # Calculate the proportion of text that is tags
+        tag_length = sum(len(tag) for tag in tags)
+        tag_ratio = tag_length / len(text)
+
+        # If tags make up a significant portion, consider it markup
+        if tag_ratio >= markup_threshold:
+            return True
+
+    # Alternative check: high density of angle brackets
+    markup_ratio = markup_chars / len(text)
+    return markup_ratio >= markup_threshold
+
+
 def detect_repeat_token(
     predicted_tokens: str,
     base_max_repeats: int = 4,
@@ -61,6 +97,10 @@ def detect_repeat_token(
     for seq_len in range(1, window_size // 2 + 1):
         # Extract the potential repeating sequence from the end
         candidate_seq = predicted_tokens[-seq_len:]
+
+        # Skip if this is primarily a markup sequence (natural repetition in HTML/XML)
+        if is_markup_sequence(candidate_seq):
+            continue
 
         # Inverse scaling: shorter sequences need more repeats
         max_repeats = int(base_max_repeats * (1 + scaling_factor / seq_len))

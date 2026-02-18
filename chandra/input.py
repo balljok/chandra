@@ -39,6 +39,7 @@ def load_pdf_images(
     pdf_path = Path(filepath)
     json_path = pdf_path.with_suffix(".json")
     ocr_data = {}
+
     if json_path.exists():
         with open(json_path, "r") as f:
             ocr_data = json.load(f)
@@ -49,13 +50,11 @@ def load_pdf_images(
             # Check if OCR data exists for this page and has content
             ocr_text = ""
             if ocr_data and "ocr" in ocr_data and "pages" in ocr_data["ocr"]:
-                page_ocr = ocr_data["ocr"]["pages"].get(str(page))
-                if page_ocr:
-                    ocr_text = page_ocr if isinstance(page_ocr, str) else ""
+                ocr_text = ocr_data["ocr"]["pages"].get(str(page + 1), "").strip()
 
             # If OCR is empty, add a small white image
-            if not ocr_text or not ocr_text.strip():
-                images.append(Image.new("RGB", (100, 100), color="white"))
+            if not ocr_text:
+                images.append(Image.new("RGB", (432, 605), color="white"))
             else:
                 # Otherwise, render the PDF page as usual
                 page_obj = doc[page]
