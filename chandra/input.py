@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from typing import List
 import filetype
 from PIL import Image
@@ -33,18 +35,30 @@ def load_pdf_images(
     doc = pdfium.PdfDocument(filepath)
     doc.init_forms()
 
+    # Try to load OCR JSON file
+    pdf_path = Path(filepath)
+    json_path = pdf_path.with_suffix(".json")
+    ocr_data = {}
+    if json_path.exists():
+        with open(json_path, "r") as f:
+            ocr_data = json.load(f)
+
     images = []
     for page in range(len(doc)):
         if not page_range or page in page_range:
-            page_obj = doc[page]
+            # Check if OCR data exists for this page and has content
+            ocr_text = ""
+            if ocr_data and "ocr" in ocr_data and "pages" in ocr_data["ocr"]:
+                page_ocr = ocr_data["ocr"]["pages"].get(str(page))
+                if page_ocr:
+                    ocr_text = page_ocr if isinstance(page_ocr, str) else ""
 
-            # Check if page contains any text
-            textpage = page_obj.get_textpage()
-            page_text = textpage.get_text_range()
-            has_text = bool(page_text.strip())
-
-            if has_text:
-                # Page has text, render normally
+            # If OCR is empty, add a small white image
+            if not ocr_text or not ocr_text.strip():
+                images.append(Image.new("RGB", (100, 100), color="white"))
+            else:
+                # Otherwise, render the PDF page as usual
+                page_obj = doc[page]
                 min_page_dim = min(page_obj.get_width(), page_obj.get_height())
                 scale_dpi = (min_pdf_image_dim / min_page_dim) * 72
                 scale_dpi = max(scale_dpi, image_dpi)
@@ -56,10 +70,6 @@ def load_pdf_images(
                     page_obj.render(scale=scale_dpi / 72).to_pil().convert("RGB")
                 )
                 images.append(pil_image)
-            else:
-                # Page has no text, add small white image
-                white_image = Image.new("RGB", (100, 100), color="white")
-                images.append(white_image)
 
     doc.close()
     return images
