@@ -54,8 +54,7 @@ def load_pdf_images(
 
             # If OCR is empty, add a small white image
             if not ocr_text:
-                # images.append(Image.new("RGB", (432, 605), color="white"))
-                images.append(None)
+                images.append(Image.new("RGB", (1, 1), color="black"))
             else:
                 # Otherwise, render the PDF page as usual
                 page_obj = doc[page]
