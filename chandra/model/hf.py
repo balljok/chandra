@@ -82,13 +82,22 @@ def generate_hf(
             )
             retry_inputs = retry_inputs.to("cuda")
 
+            # Adjusted according to suggestion på ChatGPT
             retry_generated_ids = model.generate(
                 **retry_inputs,
                 max_new_tokens=max_output_tokens,
-                temperature=0.3,
-                top_p=0.95,
+                temperature=min(0.65 + 0.08 * (retries + 1), 0.9),
+                top_p=min(0.85 + 0.02 * (retries + 1), 0.92),
+                rep_penalty=min(1.05 + 0.03 * (retries + 1), 1.15),
                 do_sample=True,
             )
+            # retry_generated_ids = model.generate(
+            #     **retry_inputs,
+            #     max_new_tokens=max_output_tokens,
+            #     temperature=0.3,
+            #     top_p=0.95,
+            #     do_sample=True,
+            # )
             retry_trimmed = [
                 out_ids[len(in_ids) :]
                 for in_ids, out_ids in zip(retry_inputs.input_ids, retry_generated_ids)
