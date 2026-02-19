@@ -93,7 +93,7 @@ def generate_hf(
                 max_new_tokens=max_output_tokens,
                 temperature=min(0.65 + 0.08 * (retries + 1), 0.9),
                 top_p=min(0.85 + 0.02 * (retries + 1), 0.92),
-                rep_penalty=min(1.05 + 0.03 * (retries + 1), 1.15),
+                # rep_penalty=min(1.05 + 0.03 * (retries + 1), 1.15),
                 do_sample=True,
             )
             # retry_generated_ids = model.generate(
