@@ -1,7 +1,11 @@
 from typing import List
 
 from chandra.model.schema import BatchInputItem, GenerationResult
-from chandra.model.util import scale_to_fit, detect_repeat_token
+from chandra.model.util import (
+    scale_to_fit,
+    detect_repeat_token,
+    detect_repeat_token_advanced,
+)
 from chandra.prompts import PROMPT_MAPPING
 from chandra.settings import settings
 
@@ -57,8 +61,9 @@ def generate_hf(
 
     for idx, result in enumerate(results):
         retries = 0
-        has_repeat = detect_repeat_token(result.raw) or (
-            len(result.raw) > 50 and detect_repeat_token(result.raw, cut_from_end=50)
+        has_repeat = detect_repeat_token_advanced(result.raw) or (
+            len(result.raw) > 50
+            and detect_repeat_token_advanced(result.raw, cut_from_end=50)
         )
 
         while retries < max_retries and has_repeat:
@@ -113,9 +118,9 @@ def generate_hf(
             )
 
             retries += 1
-            has_repeat = detect_repeat_token(results[idx].raw) or (
+            has_repeat = detect_repeat_token_advanced(results[idx].raw) or (
                 len(results[idx].raw) > 50
-                and detect_repeat_token(results[idx].raw, cut_from_end=50)
+                and detect_repeat_token_advanced(results[idx].raw, cut_from_end=50)
             )
 
     return results

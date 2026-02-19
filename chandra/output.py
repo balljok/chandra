@@ -42,6 +42,24 @@ def extract_images(html: str, chunks: dict, image: Image.Image):
     return images
 
 
+def wrap_mathml_token(token):
+    if token.isdigit():
+        return f"<mn>{token}</mn>"
+    else:
+        return f"<mi>{token}</mi>"
+
+
+def latex_frac_to_mathml(text):
+    pattern = r"\\frac\{(.*?)\}\{(.*?)\}"
+
+    def replacer(match):
+        num = wrap_mathml_token(match.group(1))
+        den = wrap_mathml_token(match.group(2))
+        return f"<math><mfrac>{num}{den}</mfrac></math>"
+
+    return re.sub(pattern, replacer, text)
+
+
 def parse_html(
     html: str, include_headers_footers: bool = False, include_images: bool = True
 ):
@@ -86,7 +104,7 @@ def parse_html(
 
         content = str(div.decode_contents())
         out_html += content
-    return out_html
+    return latex_frac_to_mathml(out_html)
 
 
 class Markdownify(MarkdownConverter):

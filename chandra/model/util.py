@@ -122,3 +122,77 @@ def detect_repeat_token(
             return True
 
     return False
+
+
+def detect_repeat_token_advanced(
+    predicted_tokens: str,
+    base_max_repeats: int = 4,
+    window_size: int = 500,
+    cut_from_end: int = 0,
+    scaling_factor: float = 3.0,
+    markup_ratio_allow: float = 0.7,
+    markup_max_repeats: int = 8,
+):
+    try:
+        predicted_tokens = parse_markdown(predicted_tokens)
+    except Exception as e:
+        print(f"Error parsing markdown: {e}")
+        return True
+
+    if cut_from_end > 0:
+        predicted_tokens = predicted_tokens[:-cut_from_end]
+
+    if not predicted_tokens:
+        return False
+
+    tag_pattern = r"</?[a-zA-Z][a-zA-Z0-9]*[^>]*>"
+    tag_regex = re.compile(tag_pattern)
+
+    def tokenize_markup_text(text: str) -> list[str]:
+        parts = re.split(f"({tag_pattern})", text)
+        tokens: list[str] = []
+        for part in parts:
+            if not part:
+                continue
+            if tag_regex.fullmatch(part):
+                tokens.append(part)
+            else:
+                normalized = re.sub(r"\s+", " ", part)
+                if normalized.strip():
+                    tokens.append(normalized)
+        return tokens
+
+    tokens = tokenize_markup_text(predicted_tokens)
+    if len(tokens) < 2:
+        return False
+
+    max_seq_len = min(window_size, len(tokens) // 2)
+    if max_seq_len < 1:
+        return False
+
+    for seq_len in range(1, max_seq_len + 1):
+        candidate_seq = tokens[-seq_len:]
+
+        tag_count = sum(1 for token in candidate_seq if tag_regex.fullmatch(token))
+        markup_ratio = tag_count / seq_len if seq_len else 0.0
+
+        max_repeats = int(base_max_repeats * (1 + scaling_factor / seq_len))
+        if markup_ratio >= markup_ratio_allow:
+            max_repeats = max(max_repeats, markup_max_repeats)
+
+        repeat_count = 0
+        pos = len(tokens) - seq_len
+        if pos < 0:
+            continue
+
+        while pos >= 0:
+            if tokens[pos : pos + seq_len] == candidate_seq:
+                repeat_count += 1
+                pos -= seq_len
+            else:
+                break
+
+        if repeat_count > max_repeats:
+            return True
+
+    return False
